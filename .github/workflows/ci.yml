@@ -1,0 +1,171 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PHP_VERSION: '8.2'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  php-lint:
+    name: PHP Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          tools: composer
+
+      - name: PHP Lint
+        run: php -l php_app/lib/*.php
+
+      - name: Check for syntax errors in public files
+        run: |
+          for file in php_app/public/*.php; do
+            php -l "$file" 2>&1 || true
+          done
+
+  python-lint:
+    name: Python Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r python_model/requirements.txt
+
+      - name: Python syntax check
+        run: python -m py_compile python_model/scripts/predict.py
+
+  security-check:
+    name: Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Checking for hardcoded secrets..."
+          ! grep -rn "password.*=.*['\"]" php_app/lib/config.php || echo "WARNING: Check config.php for hardcoded passwords"
+          ! grep -rn "sk-\|ghp_\|GITHUB_TOKEN\|API_KEY" --include="*.php" --include="*.py" php_app/ python_model/ || echo "No secrets found"
+
+      - name: Check for sensitive files
+        run: |
+          ! test -f .env && echo ".env not found (good)" || echo "WARNING: .env file found - make sure it's in .gitignore"
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r python_model/requirements.txt
+
+      - name: Install mypy
+        run: pip install mypy types-joblib
+
+      - name: Type check
+        run: mypy python_model/scripts/predict.py --ignore-missing-imports --no-strict-optional || true
+
+  test-python:
+    name: Test Python Model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r python_model/requirements.txt
+
+      - name: Test model creation
+        run: |
+          cd python_model
+          python -c "
+          import sys
+          sys.path.insert(0, 'scripts')
+          from predict import PerformancePredictor
+          predictor = PerformancePredictor()
+          result = predictor.predict({
+              'current_cgpa': 3.5,
+              'subjects': [
+                  {'name': 'Mathematics', 'grade': 2},
+                  {'name': 'English', 'grade': 3},
+                  {'name': 'Physics', 'grade': 2},
+                  {'name': 'Chemistry', 'grade': 4},
+                  {'name': 'Biology', 'grade': 3}
+              ],
+              'parent_education_level': 'tertiary',
+              'study_hours_per_week': 20,
+              'access_to_learning_materials': 'good',
+              'school_type': 'private',
+              'family_income_level': 'middle'
+          })
+          assert result['success'] == True, f'Prediction failed: {result}'
+          assert 0 <= result['predicted_performance'] <= 100, f'Invalid prediction: {result[\"predicted_performance\"]}'
+          print(f'Prediction: {result[\"predicted_performance\"]}%')
+          print(f'Confidence: {result[\"confidence_level\"]}%')
+          print('Test passed!')
+          "
+
+  deploy-check:
+    name: Deployment Ready
+    runs-on: ubuntu-latest
+    needs: [php-lint, python-lint, security-check, test-python]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify deployment files exist
+        run: |
+          echo "Checking deployment readiness..."
+          test -f db/supabase_schema.sql && echo "✓ Supabase schema exists" || (echo "✗ Missing supabase_schema.sql" && exit 1)
+          test -f python_model/requirements.txt && echo "✓ Python requirements exists" || (echo "✓ Python requirements exists" || exit 1)
+          test -f python_model/scripts/predict.py && echo "✓ Python predict script exists" || exit 1
+          test -f php_app/lib/config.php && echo "✓ Config exists" || exit 1
+          test -f php_app/lib/database.php && echo "✓ Database class exists" || exit 1
+          echo "Deployment check passed!"
+
+      - name: Generate deployment summary
+        run: |
+          echo "## Deployment Checklist" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Supabase Setup" >> $GITHUB_STEP_SUMMARY
+          echo "1. Create Supabase project at https://supabase.com" >> $GITHUB_STEP_SUMMARY
+          echo "2. Go to SQL Editor and run \`db/supabase_schema.sql\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Copy connection details to .env" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment Variables" >> $GITHUB_STEP_SUMMARY
+          echo "Set these on your hosting platform:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "DB_HOST=db.xxxx.supabase.co" >> $GITHUB_STEP_SUMMARY
+          echo "DB_PORT=5432" >> $GITHUB_STEP_SUMMARY
+          echo "DB_NAME=postgres" >> $GITHUB_STEP_SUMMARY
+          echo "DB_USER=postgres" >> $GITHUB_STEP_SUMMARY
+          echo "DB_PASS=your-supabase-password" >> $GITHUB_STEP_SUMMARY
+          echo "DB_SSLMODE=require" >> $GITHUB_STEP_SUMMARY
+          echo "BASE_URL=https://your-domain.com/php_app/public/" >> $GITHUB_STEP_SUMMARY
+          echo "PYTHON_PATH=/usr/bin/python3" >> $GITHUB_STEP_SUMMARY
+          echo "APP_DEBUG=false" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

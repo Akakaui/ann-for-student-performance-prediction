@@ -329,21 +329,18 @@ class Recommendations {
      * Save recommendations to database
      */
     private function saveRecommendations($prediction_id, $recommendations) {
-        // Check if recommendations already exist
         $existing = $this->db->fetchOne(
             "SELECT id FROM recommendations WHERE prediction_id = ?",
             [$prediction_id]
         );
-        
+
         if ($existing) {
-            // Update existing recommendations
-            $this->db->execute(
+            $this->db->query(
                 "UPDATE recommendations SET recommendations = ?, updated_at = NOW() WHERE prediction_id = ?",
                 [json_encode($recommendations), $prediction_id]
             );
         } else {
-            // Insert new recommendations
-            $this->db->execute(
+            $this->db->query(
                 "INSERT INTO recommendations (prediction_id, recommendations, created_at, updated_at) 
                  VALUES (?, ?, NOW(), NOW())",
                 [$prediction_id, json_encode($recommendations)]

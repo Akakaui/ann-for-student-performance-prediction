@@ -1,0 +1,47 @@
+# Environment files
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Models (large files - train on deploy)
+python_model/models/*.pkl
+python_model/models/*.h5
+python_model/models/*.joblib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# PHP
+vendor/
+composer.lock
+
+# Node
+node_modules/
+
+# Supabase
+supabase/.temp/
+supabase/.env

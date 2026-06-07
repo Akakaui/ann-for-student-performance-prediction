@@ -7,15 +7,19 @@ class Database {
 
     public function __construct() {
         try {
-            $this->connection = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-            
-            if ($this->connection->connect_error) {
-                throw new Exception("Connection failed: " . $this->connection->connect_error);
-            }
-            
-            $this->connection->set_charset("utf8mb4");
-        } catch (Exception $e) {
-            die("Database connection error: " . $e->getMessage());
+            $dsn = sprintf(
+                "pgsql:host=%s;port=%s;dbname=%s;options='--client_encoding=%s sslmode=%s'",
+                DB_HOST, DB_PORT, DB_NAME, 'utf8', DB_SSLMODE
+            );
+
+            $this->connection = new PDO($dsn, DB_USER, DB_PASS, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+            ]);
+        } catch (PDOException $e) {
+            error_log("Database connection error: " . $e->getMessage());
+            die("Database connection error. Please check your configuration.");
         }
     }
 
@@ -32,64 +36,27 @@ class Database {
 
     public function query($sql, $params = []) {
         $stmt = $this->connection->prepare($sql);
-        
-        if (!$stmt) {
-            throw new Exception("Prepare failed: " . $this->connection->error);
-        }
-        
-        if (!empty($params)) {
-            $types = '';
-            $values = [];
-            
-            foreach ($params as $param) {
-                if (is_int($param)) {
-                    $types .= 'i';
-                } elseif (is_float($param)) {
-                    $types .= 'd';
-                } else {
-                    $types .= 's';
-                }
-                $values[] = $param;
-            }
-            
-            $stmt->bind_param($types, ...$values);
-        }
-        
-        if (!$stmt->execute()) {
-            throw new Exception("Execute failed: " . $stmt->error);
-        }
-        
+        $stmt->execute($params);
         return $stmt;
     }
 
     public function fetchAll($sql, $params = []) {
         $stmt = $this->query($sql, $params);
-        $result = $stmt->get_result();
-        $rows = [];
-        
-        while ($row = $result->fetch_assoc()) {
-            $rows[] = $row;
-        }
-        
-        $stmt->close();
-        return $rows;
+        return $stmt->fetchAll();
     }
 
     public function fetchOne($sql, $params = []) {
         $stmt = $this->query($sql, $params);
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-        $stmt->close();
-        
+        $row = $stmt->fetch();
         return $row ?: null;
     }
 
     public function lastInsertId() {
-        return $this->connection->insert_id;
+        return $this->connection->lastInsertId();
     }
 
     public function beginTransaction() {
-        $this->connection->begin_transaction();
+        $this->connection->beginTransaction();
     }
 
     public function commit() {
@@ -97,7 +64,6 @@ class Database {
     }
 
     public function rollback() {
-        $this->connection->rollback();
+        $this->connection->rollBack();
     }
 }
-?>

@@ -32,7 +32,7 @@ if (!$prediction) {
 }
 
 // Mark recommendations as viewed
-$db->execute(
+$db->query(
     "UPDATE predictions SET recommendations_viewed = TRUE WHERE id = ?",
     [$prediction_id]
 );
@@ -49,26 +49,30 @@ $total_score = 0;
 $subjects = [];
 
 for ($i = 1; $i <= 9; $i++) {
-    if (!empty($prediction["subject{$i}_name"]) && !empty($prediction["subject{$i}_score"])) {
+    if (!empty($prediction["subject{$i}_name"]) && !empty($prediction["subject{$i}_grade"])) {
         $subject_count++;
-        $total_score += $prediction["subject{$i}_score"];
+        $total_score += $prediction["subject{$i}_grade"];
         $subjects[] = [
             'name' => $prediction["subject{$i}_name"],
-            'score' => $prediction["subject{$i}_score"],
-            'grade' => $this->convertToGrade($prediction["subject{$i}_score"])
+            'score' => $prediction["subject{$i}_grade"],
+            'grade' => convertToGrade($prediction["subject{$i}_grade"])
         ];
     }
 }
 
 $average_score = $subject_count > 0 ? round($total_score / $subject_count, 2) : 0;
 
-// Helper function to convert score to grade
-function convertToGrade($score) {
-    if ($score >= 80) return 'A';
-    if ($score >= 70) return 'B';
-    if ($score >= 60) return 'C';
-    if ($score >= 50) return 'D';
-    return 'E';
+// Helper function to convert WAEC grade number to letter grade
+function convertToGrade($grade) {
+    if ($grade <= 1) return 'A1';
+    if ($grade <= 2) return 'B2';
+    if ($grade <= 3) return 'B3';
+    if ($grade <= 4) return 'C4';
+    if ($grade <= 5) return 'C5';
+    if ($grade <= 6) return 'C6';
+    if ($grade <= 7) return 'D7';
+    if ($grade <= 8) return 'E8';
+    return 'F9';
 }
 ?>
 <!DOCTYPE html>

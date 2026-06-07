@@ -28,13 +28,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     foreach ($_POST['settings'] as $key => $value) {
         if (isset($settings_map[$key])) {
-            $db->execute(
+            $db->query(
                 "UPDATE system_settings SET setting_value = ?, updated_at = NOW() WHERE setting_key = ?",
                 [$value, $key]
             );
             $updated++;
         } else {
-            $db->execute(
+            $db->query(
                 "INSERT INTO system_settings (setting_key, setting_value, description) VALUES (?, ?, ?)",
                 [$key, $value, 'Custom setting']
             );
@@ -44,8 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if ($updated > 0) {
         $_SESSION['success'] = "System settings updated successfully!";
-        // Log the action
-        $db->execute(
+        $db->query(
             "INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)",
             [$_SESSION['user_id'], 'settings_update', 'Updated system settings', $_SERVER['REMOTE_ADDR']]
         );
@@ -57,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Get system information
 $system_info = [
     'php_version' => PHP_VERSION,
-    'mysql_version' => $db->fetchOne("SELECT VERSION() as version")['version'],
+    'postgres_version' => $db->fetchOne("SELECT version() as version")['version'] ?? 'Unknown',
     'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
     'max_upload_size' => ini_get('upload_max_filesize'),
     'max_execution_time' => ini_get('max_execution_time'),
@@ -246,8 +245,8 @@ $system_info = [
                             <span class="text-muted"><?php echo $system_info['php_version']; ?></span>
                         </div>
                         <div class="mb-3">
-                            <strong>MySQL Version:</strong><br>
-                            <span class="text-muted"><?php echo $system_info['mysql_version']; ?></span>
+                            <strong>PostgreSQL Version:</strong><br>
+                            <span class="text-muted"><?php echo $system_info['postgres_version']; ?></span>
                         </div>
                         <div class="mb-3">
                             <strong>Server Software:</strong><br>
