@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: student-predictor
+    runtime: php
+    buildCommand: pip install -r python_model/requirements.txt
+    startCommand: cd php_app/public && php -S 0.0.0.0:$PORT
+    envVars:
+      - key: DB_HOST
+        value: db.llazslbsgishzyepyjpd.supabase.co
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        value: postgres
+      - key: DB_USER
+        value: postgres
+      - key: DB_PASS
+        sync: false
+      - key: DB_SSLMODE
+        value: require
+      - key: BASE_URL
+        sync: false
+      - key: PYTHON_PATH
+        value: /usr/bin/python3
+      - key: APP_DEBUG
+        value: "false"
