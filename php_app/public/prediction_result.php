@@ -8,42 +8,31 @@ require_once '../lib/recommendations.php';
 session_start();
 Auth::requireAuth();
 
-// Only students can view prediction results
 if ($_SESSION['role'] !== 'student') {
-    $_SESSION['error'] = "Access denied. This page is for students only.";
     Utils::redirect('dashboard.php');
 }
 
 $db = Database::getInstance();
 $recommendationsEngine = new Recommendations($db);
 
-// Get prediction ID from URL
 $prediction_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
-// Verify the prediction belongs to the current user
 $prediction = $db->fetchOne(
     "SELECT * FROM predictions WHERE id = ? AND user_id = ?",
     [$prediction_id, $_SESSION['user_id']]
 );
 
 if (!$prediction) {
-    $_SESSION['error'] = "Prediction not found or access denied.";
-    Utils::redirect('my_predictions.php');
+    Utils::redirect('dashboard.php');
 }
 
-// Mark recommendations as viewed
-$db->query(
-    "UPDATE predictions SET recommendations_viewed = TRUE WHERE id = ?",
-    [$prediction_id]
-);
+$db->query("UPDATE predictions SET recommendations_viewed = TRUE WHERE id = ?", [$prediction_id]);
 
-// Get or generate recommendations
 $saved_recommendations = $recommendationsEngine->getSavedRecommendations($prediction_id);
 if (!$saved_recommendations) {
     $saved_recommendations = $recommendationsEngine->generateRecommendations($prediction_id, $_SESSION['user_id']);
 }
 
-// Calculate subject counts and averages
 $subject_count = 0;
 $total_score = 0;
 $subjects = [];
@@ -61,8 +50,9 @@ for ($i = 1; $i <= 9; $i++) {
 }
 
 $average_score = $subject_count > 0 ? round($total_score / $subject_count, 2) : 0;
+$predicted = $prediction['predicted_performance'] ?? $prediction['predicted_score'] ?? 0;
+$confidence = $prediction['confidence_level'] ?? $prediction['confidence'] ?? 85;
 
-// Helper function to convert WAEC grade number to letter grade
 function convertToGrade($grade) {
     if ($grade <= 1) return 'A1';
     if ($grade <= 2) return 'B2';
@@ -80,307 +70,144 @@ function convertToGrade($grade) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prediction Results - Student Performance Predictor</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Prediction Results — PredictEd</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="../assets/css/style.css" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand" href="dashboard.php">
-                <i class="bi bi-graph-up"></i> Student Predictor
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="dashboard.php">Dashboard</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="prediction_form.php">New Prediction</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="my_predictions.php">My Predictions</a>
-                    </li>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
-                            <i class="bi bi-person-circle"></i> <?php echo $_SESSION['username']; ?>
-                        </a>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="profile.php"><i class="bi bi-person"></i> Profile</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="logout.php"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
-                        </ul>
-                    </li>
-                </ul>
-            </div>
-        </div>
+
+<?php $full_name = $_SESSION['full_name'] ?? 'User'; $role = $_SESSION['role'] ?? 'student'; ?>
+<aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <a href="index.php" class="sidebar-logo">
+            <div class="sidebar-logo-icon"><i class="bi bi-graph-up-arrow"></i></div>
+            <span>PredictEd</span>
+        </a>
+        <button class="sidebar-close" id="sidebarClose"><i class="bi bi-x-lg"></i></button>
+    </div>
+    <nav class="sidebar-nav">
+        <a href="dashboard.php" class="sidebar-link"><i class="bi bi-grid-1x2-fill"></i> Dashboard</a>
+        <a href="prediction_form.php" class="sidebar-link"><i class="bi bi-magic"></i> New Prediction</a>
     </nav>
+    <div class="sidebar-footer">
+        <div class="sidebar-user">
+            <div class="sidebar-user-avatar"><?= strtoupper(substr($full_name, 0, 1)) ?></div>
+            <div class="sidebar-user-info">
+                <div class="sidebar-user-name"><?= htmlspecialchars($full_name) ?></div>
+                <div class="sidebar-user-role">Student</div>
+            </div>
+        </div>
+        <a href="logout.php" class="sidebar-logout"><i class="bi bi-box-arrow-left"></i></a>
+    </div>
+</aside>
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-    <div class="container mt-4">
-        <!-- Page Header -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h1 class="fw-bold">Prediction Results</h1>
-                        <p class="text-muted mb-0">
-                            Analysis completed on <?php echo Utils::formatDate($prediction['created_at']); ?>
-                        </p>
-                    </div>
-                    <div class="btn-group">
-                        <a href="my_predictions.php" class="btn btn-outline-secondary">
-                            <i class="bi bi-arrow-left"></i> Back to Predictions
-                        </a>
-                        <a href="prediction_form.php" class="btn btn-primary">
-                            <i class="bi bi-plus-circle"></i> New Prediction
-                        </a>
-                    </div>
+<div class="main-wrapper">
+    <header class="topbar">
+        <button class="topbar-menu" id="topbarMenu"><i class="bi bi-list"></i></button>
+        <div class="topbar-title">Prediction Results</div>
+        <div class="topbar-actions">
+            <a href="prediction_form.php" class="topbar-btn"><i class="bi bi-plus-lg"></i> New</a>
+        </div>
+    </header>
+
+    <div class="main-content">
+        <!-- Score -->
+        <div class="result-card">
+            <div class="result-score">
+                <div class="result-score-circle">
+                    <span class="result-score-value"><?= number_format($predicted, 0) ?>%</span>
+                </div>
+                <div class="result-score-label">Predicted Performance</div>
+            </div>
+            <div class="stats-grid" style="margin-top:1.5rem; margin-bottom:0">
+                <div class="stat-card stat-card-orange">
+                    <div class="stat-icon"><i class="bi bi-bullseye"></i></div>
+                    <div class="stat-value"><?= number_format($confidence, 0) ?>%</div>
+                    <div class="stat-label">Confidence</div>
+                </div>
+                <div class="stat-card stat-card-teal">
+                    <div class="stat-icon"><i class="bi bi-journal-text"></i></div>
+                    <div class="stat-value"><?= $subject_count ?></div>
+                    <div class="stat-label">Subjects</div>
+                </div>
+                <div class="stat-card stat-card-violet">
+                    <div class="stat-icon"><i class="bi bi-graph-up"></i></div>
+                    <div class="stat-value"><?= number_format($average_score, 1) ?></div>
+                    <div class="stat-label">Avg Score</div>
                 </div>
             </div>
         </div>
 
-        <!-- Main Results Card -->
-        <div class="row mb-4">
-            <div class="col-lg-8">
-                <div class="card">
-                    <div class="card-header bg-primary text-white">
-                        <h4 class="card-title mb-0">
-                            <i class="bi bi-graph-up"></i> Performance Prediction
-                        </h4>
-                    </div>
-                    <div class="card-body">
-                        <div class="row text-center">
-                            <div class="col-md-4">
-                                <div class="border-end">
-                                    <h2 class="text-<?php echo $prediction['predicted_performance'] >= 70 ? 'success' : ($prediction['predicted_performance'] >= 50 ? 'warning' : 'danger'); ?>">
-                                        <?php echo $prediction['predicted_performance']; ?>%
-                                    </h2>
-                                    <p class="text-muted mb-0">Predicted Performance</p>
-                                    <small class="text-muted">Based on <?php echo $prediction['exam_type']; ?> scores</small>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="border-end">
-                                    <h2 class="text-<?php echo $prediction['confidence_level'] >= 80 ? 'success' : ($prediction['confidence_level'] >= 60 ? 'warning' : 'danger'); ?>">
-                                        <?php echo $prediction['confidence_level']; ?>%
-                                    </h2>
-                                    <p class="text-muted mb-0">Confidence Level</p>
-                                    <small class="text-muted">Prediction accuracy estimate</small>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div>
-                                    <h2 class="text-info"><?php echo $subject_count; ?></h2>
-                                    <p class="text-muted mb-0">Subjects Analyzed</p>
-                                    <small class="text-muted">Average score: <?php echo $average_score; ?>%</small>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Performance Bar -->
-                        <div class="mt-4">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span>Performance Level</span>
-                                <span>
-                                    <?php
-                                    $performance = $prediction['predicted_performance'];
-                                    if ($performance >= 80) {
-                                        echo '<span class="badge bg-success">Excellent</span>';
-                                    } elseif ($performance >= 70) {
-                                        echo '<span class="badge bg-primary">Good</span>';
-                                    } elseif ($performance >= 60) {
-                                        echo '<span class="badge bg-warning">Average</span>';
-                                    } elseif ($performance >= 50) {
-                                        echo '<span class="badge bg-orange">Needs Improvement</span>';
-                                    } else {
-                                        echo '<span class="badge bg-danger">Poor</span>';
-                                    }
-                                    ?>
-                                </span>
-                            </div>
-                            <div class="progress" style="height: 20px;">
-                                <div class="progress-bar bg-<?php 
-                                    echo $prediction['predicted_performance'] >= 70 ? 'success' : 
-                                         ($prediction['predicted_performance'] >= 50 ? 'warning' : 'danger'); 
-                                ?>" style="width: <?php echo $prediction['predicted_performance']; ?>%">
-                                    <?php echo $prediction['predicted_performance']; ?>%
-                                </div>
-                            </div>
-                        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem">
+            <!-- Subjects -->
+            <div class="result-card">
+                <div class="result-header">
+                    <div class="result-icon" style="background:rgba(249,115,22,0.1);color:var(--accent)"><i class="bi bi-journal-text"></i></div>
+                    <div>
+                        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:700">Subject Performance</h3>
                     </div>
                 </div>
-
-                <!-- Subject Performance -->
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h5 class="card-title mb-0">
-                            <i class="bi bi-journal-text"></i> Subject Performance Analysis
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-striped">
-                                <thead>
-                                    <tr>
-                                        <th>Subject</th>
-                                        <th>Score</th>
-                                        <th>Grade</th>
-                                        <th>Performance</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($subjects as $subject): ?>
-                                    <tr>
-                                        <td><?php echo htmlspecialchars($subject['name']); ?></td>
-                                        <td>
-                                            <strong><?php echo $subject['score']; ?>%</strong>
-                                        </td>
-                                        <td>
-                                            <span class="badge bg-<?php 
-                                                echo $subject['score'] >= 80 ? 'success' : 
-                                                     ($subject['score'] >= 70 ? 'primary' : 
-                                                     ($subject['score'] >= 60 ? 'warning' : 
-                                                     ($subject['score'] >= 50 ? 'orange' : 'danger'))); 
-                                            ?>">
-                                                <?php echo $subject['grade']; ?>
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div class="progress" style="height: 8px;">
-                                                <div class="progress-bar bg-<?php 
-                                                    echo $subject['score'] >= 80 ? 'success' : 
-                                                         ($subject['score'] >= 70 ? 'primary' : 
-                                                         ($subject['score'] >= 60 ? 'warning' : 
-                                                         ($subject['score'] >= 50 ? 'orange' : 'danger'))); 
-                                                ?>" style="width: <?php echo $subject['score']; ?>%"></div>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Recommendations Sidebar -->
-            <div class="col-lg-4">
-                <div class="card sticky-top" style="top: 20px;">
-                    <div class="card-header bg-success text-white">
-                        <h5 class="card-title mb-0">
-                            <i class="bi bi-lightbulb"></i> Personalized Recommendations
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <!-- General Recommendations -->
-                        <h6>Key Recommendations:</h6>
-                        <div class="recommendations-list">
-                            <?php foreach ($saved_recommendations['general'] as $rec): ?>
-                            <div class="recommendation-item mb-3 p-3 border rounded bg-light">
-                                <div class="d-flex align-items-start">
-                                    <i class="bi bi-<?php echo $rec['icon']; ?> text-<?php 
-                                        echo $rec['priority'] === 'critical' ? 'danger' : 
-                                             ($rec['priority'] === 'high' ? 'warning' : 
-                                             ($rec['priority'] === 'medium' ? 'info' : 'success')); 
-                                    ?> me-2 mt-1"></i>
-                                    <div>
-                                        <h6 class="mb-1"><?php echo htmlspecialchars($rec['title']); ?></h6>
-                                        <p class="mb-1 small"><?php echo htmlspecialchars($rec['message']); ?></p>
-                                        <span class="badge bg-<?php 
-                                            echo $rec['priority'] === 'critical' ? 'danger' : 
-                                                 ($rec['priority'] === 'high' ? 'warning' : 
-                                                 ($rec['priority'] === 'medium' ? 'info' : 'success')); 
-                                        ?>"><?php echo ucfirst($rec['priority']); ?> priority</span>
-                                    </div>
-                                </div>
-                            </div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Subject</th><th>Score</th><th>Grade</th></tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($subjects as $s): ?>
+                            <tr>
+                                <td><?= htmlspecialchars($s['name']) ?></td>
+                                <td><strong><?= $s['score'] ?>%</strong></td>
+                                <td><span class="badge badge-success"><?= $s['grade'] ?></span></td>
+                            </tr>
                             <?php endforeach; ?>
-                        </div>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
-                        <!-- Weak Subjects -->
-                        <?php if (!empty($saved_recommendations['subject_specific']['weak_subjects'])): ?>
-                        <h6 class="mt-4">Focus Areas:</h6>
-                        <?php foreach ($saved_recommendations['subject_specific']['weak_subjects'] as $subject): ?>
-                        <div class="weak-subject mb-3 p-3 border rounded bg-warning bg-opacity-10">
-                            <h6 class="text-warning">
-                                <i class="bi bi-exclamation-triangle"></i>
-                                <?php echo htmlspecialchars($subject['name']); ?> (<?php echo $subject['score']; ?>%)
-                            </h6>
-                            <ul class="small mb-0">
-                                <?php foreach ($subject['recommendations'] as $tip): ?>
-                                <li><?php echo htmlspecialchars($tip['tip']); ?></li>
-                                <?php endforeach; ?>
-                            </ul>
-                        </div>
-                        <?php endforeach; ?>
-                        <?php endif; ?>
-
-                        <!-- Study Plan Preview -->
-                        <h6 class="mt-4">Study Plan Preview:</h6>
-                        <div class="study-plan">
-                            <?php $first_week = $saved_recommendations['study_plan'][0] ?? []; ?>
-                            <?php if (!empty($first_week)): ?>
-                            <div class="p-3 border rounded">
-                                <h6>Week <?php echo $first_week['week']; ?>: <?php echo $first_week['focus']; ?></h6>
-                                <ul class="small mb-2">
-                                    <?php foreach ($first_week['activities'] as $activity): ?>
-                                    <li><?php echo htmlspecialchars($activity); ?></li>
-                                    <?php endforeach; ?>
-                                </ul>
-                                <small class="text-muted">
-                                    <i class="bi bi-clock"></i> <?php echo $first_week['hours_weekly']; ?> hours/week
-                                </small>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-
-                        <!-- Improvement Timeline -->
-                        <?php if (!empty($saved_recommendations['timeline'])): ?>
-                        <div class="timeline mt-3 p-3 border rounded bg-info bg-opacity-10">
-                            <h6>Improvement Timeline:</h6>
-                            <div class="small">
-                                <strong>Current:</strong> <?php echo $saved_recommendations['timeline']['current_level']; ?><br>
-                                <strong>Next Goal:</strong> <?php echo $saved_recommendations['timeline']['next_milestone']; ?><br>
-                                <strong>Estimated Time:</strong> <?php echo $saved_recommendations['timeline']['estimated_time']; ?><br>
-                                <strong>Target:</strong> <?php echo $saved_recommendations['timeline']['target_improvement']; ?>
-                            </div>
-                        </div>
-                        <?php endif; ?>
+            <!-- Recommendations -->
+            <div class="result-card">
+                <div class="result-header">
+                    <div class="result-icon" style="background:rgba(20,184,166,0.1);color:var(--teal)"><i class="bi bi-lightbulb-fill"></i></div>
+                    <div>
+                        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:700">Recommendations</h3>
                     </div>
                 </div>
+                <?php if (!empty($saved_recommendations['general'])): ?>
+                    <?php foreach (array_slice($saved_recommendations['general'], 0, 4) as $rec): ?>
+                    <div style="padding:0.75rem;background:var(--glass);border:1px solid var(--border);border-radius:10px;margin-bottom:0.75rem">
+                        <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.25rem"><?= htmlspecialchars($rec['title']) ?></div>
+                        <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.6"><?= htmlspecialchars($rec['message']) ?></div>
+                    </div>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <p style="color:var(--text-muted);font-size:0.9rem">No specific recommendations generated yet.</p>
+                <?php endif; ?>
             </div>
         </div>
 
-        <!-- Action Buttons -->
-        <div class="row mt-4">
-            <div class="col-12">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <a href="my_predictions.php" class="btn btn-outline-secondary">
-                            <i class="bi bi-arrow-left"></i> Back to All Predictions
-                        </a>
-                    </div>
-                    <div class="btn-group">
-                        <button onclick="window.print()" class="btn btn-outline-primary">
-                            <i class="bi bi-printer"></i> Print Report
-                        </button>
-                        <a href="prediction_form.php" class="btn btn-primary">
-                            <i class="bi bi-plus-circle"></i> New Analysis
-                        </a>
-                    </div>
-                </div>
-            </div>
+        <!-- Actions -->
+        <div class="form-actions" style="margin-top:0">
+            <a href="dashboard.php" class="btn-secondary"><i class="bi bi-arrow-left"></i> Dashboard</a>
+            <a href="prediction_form.php" class="btn-primary"><i class="bi bi-plus-lg"></i> New Prediction</a>
         </div>
     </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.getElementById('topbarMenu')?.addEventListener('click', () => {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebarOverlay').classList.add('open');
+});
+document.getElementById('sidebarClose')?.addEventListener('click', closeSidebar);
+document.getElementById('sidebarOverlay')?.addEventListener('click', closeSidebar);
+function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('open');
+}
+</script>
+
 </body>
 </html>

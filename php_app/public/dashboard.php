@@ -1,88 +1,49 @@
 <?php
-// Session configuration must be set BEFORE session_start()
-// Include config first to set session settings
 require_once '../lib/config.php';
-
-// Now start session with proper settings
-session_start();
-
-// Include other files after session start
+require_once '../lib/auth.php';
 require_once '../lib/database.php';
 require_once '../lib/utils.php';
-require_once '../lib/auth.php';
+session_start();
 
-// Check if user is logged in
-if (!Utils::isLoggedIn()) {
-    $_SESSION['error'] = "Please log in to access the dashboard.";
-    Utils::redirect('login.php');
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit;
 }
 
-// Verify session variables are set
-if (!isset($_SESSION['user_id']) || !isset($_SESSION['username']) || !isset($_SESSION['role'])) {
-    session_destroy();
-    $_SESSION['error'] = "Session invalid. Please log in again.";
-    Utils::redirect('login.php');
-}
-
-$db = Database::getInstance();
+$db = Database::getInstance()->getConnection();
 $user_id = $_SESSION['user_id'];
-$username = $_SESSION['username'];
-$role = $_SESSION['role'];
+$role = $_SESSION['role'] ?? 'student';
+$full_name = $_SESSION['full_name'] ?? 'User';
 
-// Get user data from database to ensure it exists
-$user = (new Auth())->getUser($user_id);
-if (!$user) {
-    session_destroy();
-    $_SESSION['error'] = "User account not found. Please log in again.";
-    Utils::redirect('login.php');
+$prediction_count = 0;
+$avg_score = 0;
+$group_count = 0;
+
+try {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM predictions WHERE user_id = :uid");
+    $stmt->execute([':uid' => $user_id]);
+    $prediction_count = $stmt->fetchColumn();
+
+    $stmt = $db->prepare("SELECT AVG(predicted_score) FROM predictions WHERE user_id = :uid");
+    $stmt->execute([':uid' => $user_id]);
+    $avg_score = $stmt->fetchColumn() ?: 0;
+
+    if ($role === 'lecturer' || $role === 'admin') {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM student_groups WHERE created_by = :uid");
+        $stmt->execute([':uid' => $user_id]);
+        $group_count = $stmt->fetchColumn();
+    }
+} catch (Exception $e) {
+    // silent
 }
 
-// Get statistics based on user role
-if ($role === 'student') {
-    $predictionCount = $db->fetchOne(
-        "SELECT COUNT(*) as count FROM predictions WHERE user_id = ?",
-        [$user_id]
-    )['count'];
-
-    $recentPredictions = $db->fetchAll(
-        "SELECT exam_type, predicted_performance, created_at 
-         FROM predictions 
-         WHERE user_id = ? 
-         ORDER BY created_at DESC 
-         LIMIT 5",
-        [$user_id]
-    );
-
-} elseif ($role === 'lecturer') {
-    $studentCount = $db->fetchOne(
-        "SELECT COUNT(DISTINCT student_id) as count 
-         FROM group_students gs 
-         JOIN lecturer_groups lg ON gs.group_id = lg.id 
-         WHERE lg.lecturer_id = ?",
-        [$user_id]
-    )['count'];
-
-    $groupCount = $db->fetchOne(
-        "SELECT COUNT(*) as count FROM lecturer_groups WHERE lecturer_id = ?",
-        [$user_id]
-    )['count'];
-
-    $recentGroups = $db->fetchAll(
-        "SELECT group_name, description, created_at 
-         FROM lecturer_groups 
-         WHERE lecturer_id = ? 
-         ORDER BY created_at DESC 
-         LIMIT 5",
-        [$user_id]
-    );
-
-} elseif ($role === 'admin') {
-    $userCount = $db->fetchOne("SELECT COUNT(*) as count FROM users")['count'];
-    $lecturerCount = $db->fetchOne("SELECT COUNT(*) as count FROM users WHERE role = 'lecturer'")['count'];
-    $studentCount = $db->fetchOne("SELECT COUNT(*) as count FROM users WHERE role = 'student'")['count'];
-    $pendingLecturers = $db->fetchOne(
-        "SELECT COUNT(*) as count FROM lecturers WHERE verification_status = 'pending'"
-    )['count'];
+$recent_predictions = [];
+try {
+    $stmt = $db->prepare("SELECT * FROM predictions WHERE user_id = :uid ORDER BY created_at DESC LIMIT 5");
+    $stmt->execute([':uid' => $user_id]);
+    $recent_predictions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    // silent
 }
 ?>
 <!DOCTYPE html>
@@ -90,343 +51,179 @@ if ($role === 'student') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - University Performance Predictor</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Dashboard — PredictEd</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="../assets/css/style.css" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand" href="dashboard.php">
-                <i class="bi bi-graph-up"></i> University Predictor
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link active" href="dashboard.php">Dashboard</a>
-                    </li>
-                    <?php if ($role === 'student'): ?>
-                        <li class="nav-item">
-                            <a class="nav-link" href="prediction_form.php">University Performance Prediction</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="my_predictions.php">My Predictions</a>
-                        </li>
-                    <?php elseif ($role === 'lecturer'): ?>
-                        <li class="nav-item">
-                            <a class="nav-link" href="prediction_form.php">Batch Prediction</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="lecturer_groups.php">Student Groups</a>
-                        </li>
-                    <?php elseif ($role === 'admin'): ?>
-                        <li class="nav-item">
-                            <a class="nav-link" href="admin_users.php">User Management</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="admin_lecturers.php">Lecturer Verification</a>
-                        </li>
-                    <?php endif; ?>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
-                            <i class="bi bi-person-circle"></i> <?php echo htmlspecialchars($username); ?> (<?php echo ucfirst($role); ?>)
-                        </a>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="profile.php"><i class="bi bi-person"></i> Profile</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="logout.php"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
-                        </ul>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
 
-    <div class="container mt-4">
-        <!-- Welcome Message -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="welcome-card card bg-light">
-                    <div class="card-body">
-                        <h1 class="h3 card-title">Welcome back, <?php echo htmlspecialchars($username); ?>!</h1>
-                        <p class="card-text text-muted">
-                            <?php
-                            $roleMessages = [
-                                'student' => 'Get AI-powered predictions for your university performance based on your WAEC/NECO grades, current CGPA, and socio-economic factors.',
-                                'lecturer' => 'Manage student groups and analyze university performance predictions using WAEC/NECO data and academic metrics.',
-                                'admin' => 'Manage system users and verify lecturer accounts for university performance prediction system access.'
-                            ];
-                            echo $roleMessages[$role] ?? 'Welcome to University Performance Predictor.';
-                            ?>
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Quick Stats -->
-        <div class="row mb-4">
-            <?php if ($role === 'student'): ?>
-                <div class="col-md-4">
-                    <div class="card stat-card text-white bg-primary">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title"><?php echo $predictionCount; ?></h4>
-                                    <p class="card-text">University Predictions</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-graph-up-arrow display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card stat-card text-white bg-success">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title">WAEC/NECO</h4>
-                                    <p class="card-text">Input Data Source</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-journal-text display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card stat-card text-white bg-info">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title">AI Powered</h4>
-                                    <p class="card-text">Performance Analysis</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-cpu display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            <?php elseif ($role === 'lecturer'): ?>
-                <div class="col-md-4">
-                    <div class="card stat-card text-white bg-primary">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title"><?php echo $studentCount; ?></h4>
-                                    <p class="card-text">University Students</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-people display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card stat-card text-white bg-success">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title"><?php echo $groupCount; ?></h4>
-                                    <p class="card-text">Student Groups</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-collection display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card stat-card text-white bg-info">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title">Batch</h4>
-                                    <p class="card-text">University Predictions</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-graph-up display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            <?php elseif ($role === 'admin'): ?>
-                <div class="col-md-3">
-                    <div class="card stat-card text-white bg-primary">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title"><?php echo $userCount; ?></h4>
-                                    <p class="card-text">Total Users</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-people display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card stat-card text-white bg-success">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title"><?php echo $studentCount; ?></h4>
-                                    <p class="card-text">University Students</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-person display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card stat-card text-white bg-warning">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title"><?php echo $lecturerCount; ?></h4>
-                                    <p class="card-text">Lecturers</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-person-badge display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card stat-card text-white bg-danger">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h4 class="card-title"><?php echo $pendingLecturers; ?></h4>
-                                    <p class="card-text">Pending Verification</p>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="bi bi-clock display-6"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            <?php endif; ?>
-        </div>
-
-        <!-- Recent Activity -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="card-title mb-0">
-                            <i class="bi bi-clock-history"></i> Recent Activity
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <?php if ($role === 'student'): ?>
-                            <?php if (empty($recentPredictions)): ?>
-                                <p class="text-muted">No university performance predictions yet. <a href="prediction_form.php">Create your first prediction!</a></p>
-                            <?php else: ?>
-                                <div class="table-responsive">
-                                    <table class="table table-striped">
-                                        <thead>
-                                            <tr>
-                                                <th>Data Source</th>
-                                                <th>Predicted Performance</th>
-                                                <th>Date</th>
-                                                <th>Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($recentPredictions as $prediction): ?>
-                                                <tr>
-                                                    <td><?php echo htmlspecialchars($prediction['exam_type']); ?> Grades</td>
-                                                    <td>
-                                                        <span class="badge bg-<?php echo $prediction['predicted_performance'] >= 70 ? 'success' : ($prediction['predicted_performance'] >= 50 ? 'warning' : 'danger'); ?>">
-                                                            <?php echo htmlspecialchars($prediction['predicted_performance']); ?>%
-                                                        </span>
-                                                    </td>
-                                                    <td><?php echo Utils::formatDate($prediction['created_at'], 'M j, Y g:i A'); ?></td>
-                                                    <td>
-                                                        <a href="my_predictions.php" class="btn btn-sm btn-outline-primary">View Details</a>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            <?php endif; ?>
-
-                        <?php elseif ($role === 'lecturer'): ?>
-                            <?php if (empty($recentGroups)): ?>
-                                <p class="text-muted">No groups created yet. <a href="lecturer_groups.php">Create your first student group!</a></p>
-                            <?php else: ?>
-                                <div class="table-responsive">
-                                    <table class="table table-striped">
-                                        <thead>
-                                            <tr>
-                                                <th>Group Name</th>
-                                                <th>Description</th>
-                                                <th>Created Date</th>
-                                                <th>Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($recentGroups as $group): ?>
-                                                <tr>
-                                                    <td><?php echo htmlspecialchars($group['group_name']); ?></td>
-                                                    <td><?php echo htmlspecialchars($group['description'] ?: 'No description'); ?></td>
-                                                    <td><?php echo Utils::formatDate($group['created_at'], 'M j, Y'); ?></td>
-                                                    <td>
-                                                        <a href="lecturer_groups.php" class="btn btn-sm btn-outline-primary">Manage</a>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            <?php endif; ?>
-
-                        <?php elseif ($role === 'admin'): ?>
-                            <p class="text-muted">Admin dashboard overview. Use the navigation to manage users and verify lecturers for university performance prediction system access.</p>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="d-grid gap-2">
-                                        <a href="admin_users.php" class="btn btn-outline-primary">
-                                            <i class="bi bi-people"></i> Manage Users
-                                        </a>
-                                        <a href="admin_lecturers.php" class="btn btn-outline-warning">
-                                            <i class="bi bi-person-check"></i> Verify Lecturers
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-        </div>
+<!-- Sidebar -->
+<aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <a href="index.php" class="sidebar-logo">
+            <div class="sidebar-logo-icon"><i class="bi bi-graph-up-arrow"></i></div>
+            <span>PredictEd</span>
+        </a>
+        <button class="sidebar-close" id="sidebarClose"><i class="bi bi-x-lg"></i></button>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="../assets/js/script.js"></script>
+    <nav class="sidebar-nav">
+        <a href="dashboard.php" class="sidebar-link active">
+            <i class="bi bi-grid-1x2-fill"></i> Dashboard
+        </a>
+        <a href="prediction_form.php" class="sidebar-link">
+            <i class="bi bi-magic"></i> New Prediction
+        </a>
+        <?php if ($role === 'lecturer' || $role === 'admin'): ?>
+        <a href="manage_groups.php" class="sidebar-link">
+            <i class="bi bi-people-fill"></i> Groups
+        </a>
+        <?php endif; ?>
+        <?php if ($role === 'admin'): ?>
+        <a href="manage_users.php" class="sidebar-link">
+            <i class="bi bi-person-gear"></i> Users
+        </a>
+        <a href="system_settings.php" class="sidebar-link">
+            <i class="bi bi-sliders"></i> Settings
+        </a>
+        <?php endif; ?>
+    </nav>
+
+    <div class="sidebar-footer">
+        <div class="sidebar-user">
+            <div class="sidebar-user-avatar"><?= strtoupper(substr($full_name, 0, 1)) ?></div>
+            <div class="sidebar-user-info">
+                <div class="sidebar-user-name"><?= htmlspecialchars($full_name) ?></div>
+                <div class="sidebar-user-role"><?= ucfirst(htmlspecialchars($role)) ?></div>
+            </div>
+        </div>
+        <a href="logout.php" class="sidebar-logout"><i class="bi bi-box-arrow-left"></i></a>
+    </div>
+</aside>
+
+<!-- Overlay -->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<!-- Main -->
+<div class="main-wrapper">
+    <!-- Top bar -->
+    <header class="topbar">
+        <button class="topbar-menu" id="topbarMenu"><i class="bi bi-list"></i></button>
+        <div class="topbar-title">Dashboard</div>
+        <div class="topbar-actions">
+            <a href="prediction_form.php" class="topbar-btn">
+                <i class="bi bi-plus-lg"></i> New Prediction
+            </a>
+        </div>
+    </header>
+
+    <!-- Content -->
+    <div class="main-content">
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card stat-card-orange">
+                <div class="stat-icon"><i class="bi bi-graph-up-arrow"></i></div>
+                <div class="stat-value"><?= $prediction_count ?></div>
+                <div class="stat-label">Total Predictions</div>
+            </div>
+            <div class="stat-card stat-card-teal">
+                <div class="stat-icon"><i class="bi bi-bullseye"></i></div>
+                <div class="stat-value"><?= number_format($avg_score, 1) ?>%</div>
+                <div class="stat-label">Average Score</div>
+            </div>
+            <?php if ($role === 'lecturer' || $role === 'admin'): ?>
+            <div class="stat-card stat-card-violet">
+                <div class="stat-icon"><i class="bi bi-people-fill"></i></div>
+                <div class="stat-value"><?= $group_count ?></div>
+                <div class="stat-label">Groups</div>
+            </div>
+            <?php endif; ?>
+            <div class="stat-card stat-card-rose">
+                <div class="stat-icon"><i class="bi bi-trophy-fill"></i></div>
+                <div class="stat-value"><?= $prediction_count > 0 ? 'A' : '—' ?></div>
+                <div class="stat-label">Top Grade</div>
+            </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="section-header">
+            <h2>Quick Actions</h2>
+        </div>
+        <div class="actions-grid">
+            <a href="prediction_form.php" class="action-card">
+                <div class="action-icon action-icon-orange"><i class="bi bi-magic"></i></div>
+                <h3>New Prediction</h3>
+                <p>Get an AI-powered forecast of your academic performance.</p>
+            </a>
+            <a href="view_history.php" class="action-card">
+                <div class="action-icon action-icon-teal"><i class="bi bi-clock-history"></i></div>
+                <h3>View History</h3>
+                <p>Review your past predictions and track improvement.</p>
+            </a>
+            <a href="view_recommendations.php" class="action-card">
+                <div class="action-icon action-icon-violet"><i class="bi bi-lightbulb-fill"></i></div>
+                <h3>Recommendations</h3>
+                <p>Get personalized study tips and improvement plans.</p>
+            </a>
+        </div>
+
+        <!-- Recent predictions -->
+        <?php if (!empty($recent_predictions)): ?>
+        <div class="section-header">
+            <h2>Recent Predictions</h2>
+            <a href="view_history.php" class="section-link">View All <i class="bi bi-arrow-right"></i></a>
+        </div>
+        <div class="table-card">
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Predicted Score</th>
+                            <th>Confidence</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recent_predictions as $pred): ?>
+                        <tr>
+                            <td><?= date('M d, Y', strtotime($pred['created_at'])) ?></td>
+                            <td><strong><?= number_format($pred['predicted_score'], 1) ?>%</strong></td>
+                            <td><?= number_format($pred['confidence'] ?? 85, 0) ?>%</td>
+                            <td><span class="badge badge-success">Complete</span></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php else: ?>
+        <div class="empty-state">
+            <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+            <h3>No predictions yet</h3>
+            <p>Start by creating your first prediction to see your results here.</p>
+            <a href="prediction_form.php" class="btn-primary">
+                <i class="bi bi-plus-lg"></i> Create First Prediction
+            </a>
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<script src="assets/js/script.js"></script>
+<script>
+document.getElementById('topbarMenu')?.addEventListener('click', () => {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebarOverlay').classList.add('open');
+});
+document.getElementById('sidebarClose')?.addEventListener('click', closeSidebar);
+document.getElementById('sidebarOverlay')?.addEventListener('click', closeSidebar);
+function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('open');
+}
+</script>
+
 </body>
 </html>
