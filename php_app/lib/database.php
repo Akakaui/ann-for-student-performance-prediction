@@ -8,8 +8,8 @@ class Database {
     public function __construct() {
         try {
             $dsn = sprintf(
-                "pgsql:host=%s;port=%s;dbname=%s;options='--client_encoding=%s sslmode=%s'",
-                DB_HOST, DB_PORT, DB_NAME, 'utf8', DB_SSLMODE
+                "pgsql:host=%s;port=%s;dbname=%s;sslmode=%s",
+                DB_HOST, DB_PORT, DB_NAME, DB_SSLMODE
             );
 
             $this->connection = new PDO($dsn, DB_USER, DB_PASS, [
