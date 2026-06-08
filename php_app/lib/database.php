@@ -36,7 +36,7 @@ class Database {
             error_log("Database connection error: " . $e->getMessage());
             error_log("Database connection code: " . $e->getCode());
             error_log("Database DSN: host=" . DB_HOST . " port=" . DB_PORT . " dbname=" . DB_NAME . " sslmode=" . DB_SSLMODE);
-            die("Database connection error: " . $e->getMessage());
+            die("We're having trouble connecting. Please try again later.");
         }
     }
 

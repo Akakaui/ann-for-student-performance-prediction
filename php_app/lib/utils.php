@@ -3,7 +3,8 @@ require_once 'config.php';
 
 class Utils {
     public static function redirect($url) {
-        header("Location: " . BASE_URL . $url);
+        // Use relative redirects to avoid BASE_URL path issues
+        header("Location: " . $url);
         exit();
     }
 
