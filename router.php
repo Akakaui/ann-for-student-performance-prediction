@@ -3,7 +3,13 @@ $uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
 $publicDir = __DIR__ . '/php_app/public';
 $file = $publicDir . $uri;
 
-// Serve existing static files explicitly
+// Route PHP files directly
+if ($uri !== '/' && file_exists($file) && pathinfo($file, PATHINFO_EXTENSION) === 'php') {
+    require $file;
+    return true;
+}
+
+// Serve existing static files
 if ($uri !== '/' && file_exists($file) && is_file($file)) {
     $ext = pathinfo($file, PATHINFO_EXTENSION);
     $mimeTypes = [
@@ -26,12 +32,6 @@ if ($uri !== '/' && file_exists($file) && is_file($file)) {
         exit;
     }
     return false;
-}
-
-// Serve actual PHP files
-if ($uri !== '/' && file_exists($file) && pathinfo($file, PATHINFO_EXTENSION) === 'php') {
-    require $file;
-    return true;
 }
 
 // Root -> index.php
