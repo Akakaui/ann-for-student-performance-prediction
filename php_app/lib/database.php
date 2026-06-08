@@ -14,6 +14,13 @@ class Database {
             $pass = DB_PASS;
             $sslmode = DB_SSLMODE;
 
+            // Force IPv4 - Render doesn't support IPv6
+            $ipv4_host = gethostbyname($host);
+            if ($ipv4_host !== $host) {
+                $host = $ipv4_host;
+                error_log("Resolved $host to IPv4: $ipv4_host");
+            }
+
             error_log("DB Connection: host=$host port=$port dbname=$dbname user=$user sslmode=$sslmode");
 
             $dsn = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode={$sslmode}";
