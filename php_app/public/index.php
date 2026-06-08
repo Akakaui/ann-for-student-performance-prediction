@@ -2,11 +2,12 @@
 require_once '../lib/config.php';
 session_start();
 
-// Redirect to dashboard if already logged in
+// If logged in, redirect to dashboard
 if (isset($_SESSION['user_id'])) {
     header("Location: dashboard.php");
     exit;
 }
+// Otherwise, show the landing page
 ?>
 <!DOCTYPE html>
 <html lang="en">
