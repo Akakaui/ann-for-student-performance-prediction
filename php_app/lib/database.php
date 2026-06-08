@@ -7,19 +7,29 @@ class Database {
 
     public function __construct() {
         try {
-            $dsn = sprintf(
-                "pgsql:host=%s;port=%s;dbname=%s;sslmode=%s",
-                DB_HOST, DB_PORT, DB_NAME, DB_SSLMODE
-            );
+            $host = DB_HOST;
+            $port = DB_PORT;
+            $dbname = DB_NAME;
+            $user = DB_USER;
+            $pass = DB_PASS;
+            $sslmode = DB_SSLMODE;
 
-            $this->connection = new PDO($dsn, DB_USER, DB_PASS, [
+            error_log("DB Connection: host=$host port=$port dbname=$dbname user=$user sslmode=$sslmode");
+
+            $dsn = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode={$sslmode}";
+
+            $this->connection = new PDO($dsn, $user, $pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
+
+            error_log("DB Connection successful");
         } catch (PDOException $e) {
             error_log("Database connection error: " . $e->getMessage());
-            die("Database connection error. Please check your configuration.");
+            error_log("Database connection code: " . $e->getCode());
+            error_log("Database DSN: host=" . DB_HOST . " port=" . DB_PORT . " dbname=" . DB_NAME . " sslmode=" . DB_SSLMODE);
+            die("Database connection error: " . $e->getMessage());
         }
     }
 
