@@ -5,6 +5,7 @@ $file = $publicDir . $uri;
 
 // Route PHP files directly
 if ($uri !== '/' && file_exists($file) && pathinfo($file, PATHINFO_EXTENSION) === 'php') {
+    chdir($publicDir);
     require $file;
     return true;
 }
@@ -35,10 +36,6 @@ if ($uri !== '/' && file_exists($file) && is_file($file)) {
 }
 
 // Root -> index.php
-if ($uri === '/') {
-    require $publicDir . '/index.php';
-    return true;
-}
-
-http_response_code(404);
-echo 'Not found';
+chdir($publicDir);
+require $publicDir . '/index.php';
+return true;
