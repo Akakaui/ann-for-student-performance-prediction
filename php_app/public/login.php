@@ -19,12 +19,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please enter both username and password.';
     } else {
         $auth = new Auth();
-        $result = $auth->login($username, $password);
-        if ($result['success']) {
+        try {
+            $auth->login($username, $password);
             header("Location: dashboard.php");
             exit;
-        } else {
-            $error = $result['message'] ?? 'Invalid credentials. Please try again.';
+        } catch (Exception $e) {
+            $error = $e->getMessage();
         }
     }
 }

@@ -98,7 +98,7 @@ try {
                 <div class="sidebar-user-role"><?= ucfirst(htmlspecialchars($role)) ?></div>
             </div>
         </div>
-        <a href="logout.php" class="sidebar-logout"><i class="bi bi-box-arrow-left"></i></a>
+        <a href="logout.php" class="sidebar-logout-btn" title="Sign Out"><i class="bi bi-box-arrow-left"></i> Sign Out</a>
     </div>
 </aside>
 

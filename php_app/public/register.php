@@ -31,12 +31,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please enter a valid email address.';
     } else {
         $auth = new Auth();
-        $result = $auth->register($username, $email, $full_name, $password, $role);
-        if ($result['success']) {
+        try {
+            $auth->register($username, $email, $full_name, $password, $role);
             header("Location: login.php?registered=1");
             exit;
-        } else {
-            $error = $result['message'] ?? 'Registration failed. Please try again.';
+        } catch (Exception $e) {
+            $error = $e->getMessage();
         }
     }
 }

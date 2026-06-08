@@ -748,7 +748,6 @@ if (isset($_SESSION['user_id'])) {
     <div class="nav-links">
         <a href="#features" class="nav-link">Features</a>
         <a href="#how" class="nav-link">How It Works</a>
-        <a href="login.php" class="nav-admin"><i class="bi bi-shield-lock"></i> Admin</a>
         <a href="register.php" class="nav-cta">Get Started Free</a>
     </div>
 </nav>

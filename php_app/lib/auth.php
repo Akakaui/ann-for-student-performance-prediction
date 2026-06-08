@@ -9,7 +9,7 @@ class Auth {
         $this->db = Database::getInstance();
     }
 
-    public function register($username, $email, $password, $role) {
+    public function register($username, $email, $full_name, $password, $role) {
         // Validate input
         if (empty($username) || empty($email) || empty($password) || empty($role)) {
             throw new Exception("All fields are required");
@@ -42,8 +42,8 @@ class Auth {
 
         // Insert user
         $this->db->query(
-            "INSERT INTO users (username, email, password, role, is_verified) VALUES (?, ?, ?, ?, ?)",
-            [$username, $email, $hashedPassword, $role, $role === 'student' ? 1 : 0]
+            "INSERT INTO users (username, email, full_name, password, role, is_verified) VALUES (?, ?, ?, ?, ?, ?)",
+            [$username, $email, $full_name, $hashedPassword, $role, $role === 'student' ? 1 : 0]
         );
 
         $userId = $this->db->lastInsertId();
@@ -86,6 +86,7 @@ class Auth {
         // Update session
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['username'] = $user['username'];
+        $_SESSION['full_name'] = $user['full_name'] ?? $user['username'];
         $_SESSION['role'] = $user['role'];
         $_SESSION['is_verified'] = $user['is_verified'];
 

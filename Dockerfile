@@ -19,8 +19,8 @@ RUN pip3 install --break-system-packages -r /app/python_model/requirements.txt
 # Copy application files
 COPY . /app
 
-WORKDIR /app/php_app/public
+WORKDIR /app
 
 EXPOSE $PORT
 
-CMD php -S 0.0.0.0:$PORT
+CMD php -S 0.0.0.0:$PORT router.php
