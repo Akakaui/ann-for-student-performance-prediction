@@ -21,6 +21,6 @@ COPY . /app
 
 WORKDIR /app/php_app/public
 
-EXPOSE 8000
+EXPOSE $PORT
 
-CMD ["php", "-S", "0.0.0.0:8000"]
+CMD php -S 0.0.0.0:$PORT
